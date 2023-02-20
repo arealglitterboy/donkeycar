@@ -1,0 +1,5 @@
+["cam/image_array", "user/angle", "user/throttle", "user/mode", "pos/pos_x", "pos/pos_y", "pos/pos_z", "pos/speed", "pos/cte", "gyro/gyro_x", "gyro/gyro_y", "gyro/gyro_z", "accel/accel_x", "accel/accel_y", "accel/accel_z", "vel/vel_x", "vel/vel_y", "vel/vel_z"]
+["image_array", "float", "float", "str", "float", "float", "float", "float", "float", "float", "float", "float", "float", "float", "float", "float", "float", "float"]
+{}
+{"created_at": 1676075447.690607, "sessions": {"all_full_ids": ["23-02-11_0", "23-02-16_1", "23-02-16_2"], "last_id": 2, "last_full_id": "23-02-16_2"}}
+{"paths": ["catalog_0.catalog", "catalog_1.catalog", "catalog_2.catalog", "catalog_3.catalog", "catalog_4.catalog", "catalog_5.catalog", "catalog_6.catalog", "catalog_7.catalog", "catalog_8.catalog", "catalog_9.catalog", "catalog_10.catalog", "catalog_11.catalog"], "current_index": 11684, "max_len": 1000, "deleted_indexes": []}
