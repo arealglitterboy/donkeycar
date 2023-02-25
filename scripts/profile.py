@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Script to drive a TF model as fast as possible
 
@@ -11,7 +12,6 @@ import os
 from docopt import docopt
 import donkeycar as dk
 import numpy as np
-import time
 from donkeycar.utils import FPSTimer
 
 
@@ -21,38 +21,19 @@ def profile(model_path, model_type):
     model = dk.utils.get_model_by_type(model_type, cfg)
     model.load(model_path)
     
-    count, h, w, ch = 1, cfg.TARGET_H, cfg.TARGET_W, cfg.TARGET_D
-    seq_len = 0
+    h, w, ch = cfg.IMAGE_H, cfg.IMAGE_W, cfg.IMAGE_DEPTH
 
-    if "rnn" in model_type or "3d" in model_type:
-        seq_len = cfg.SEQUENCE_LENGTH
+    # generate random array in the right shape in [0,1)
+    img = np.random.randint(0, 255, size=(h, w, ch))
 
-    #generate random array in the right shape
-    img = np.random.rand(int(h), int(w), int(ch)).astype(np.uint8)
-
-    if seq_len:
-        img_arr = []
-        for i in range(seq_len):
-            img_arr.append(img)
-        img_arr = np.array(img_arr)
-
-    #make a timer obj
+    # make a timer obj
     timer = FPSTimer()
 
     try:
         while True:
-
-            '''
-            run forward pass on model
-            '''
-            if seq_len:
-                model.run(img_arr)
-            else:
-                model.run(img)
-
-            '''
-            keep track of iterations and give feed back on iter/sec
-            '''
+            # run inferencing
+            model.run(img)
+            # time
             timer.on_frame()
 
     except KeyboardInterrupt:

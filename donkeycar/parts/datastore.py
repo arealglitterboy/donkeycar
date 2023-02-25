@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
+# Archived, will get removed once all the functionality has been ported over.
 """
 Created on Tue Jul  4 12:32:53 2017
 
 @author: wroscoe
 """
+import datetime
+import glob
+import json
 import os
+import random
 import sys
 import time
-import json
-import datetime
-import random
-import glob
-import numpy as np
-import pandas as pd
 
+import numpy as np
 from PIL import Image
 
 
@@ -93,13 +94,14 @@ class Tub(object):
 
             raise AttributeError(msg)
 
-
     def get_last_ix(self):
         index = self.get_index()           
         return max(index)
 
     def update_df(self):
-        df = pd.DataFrame([self.get_json_record(i) for i in self.get_index(shuffled=False)])
+        import pandas as pd
+        df = pd.DataFrame([self.get_json_record(i)
+                           for i in self.get_index(shuffled=False)])
         self.df = df
 
     def get_df(self):
@@ -107,11 +109,10 @@ class Tub(object):
             self.update_df()
         return self.df
 
-
     def get_index(self, shuffled=True):
         files = next(os.walk(self.path))[2]
-        record_files = [f for f in files if f[:6]=='record']
-        
+        record_files = [f for f in files if f[:6] == 'record']
+
         def get_file_ix(file_name):
             try:
                 name = file_name.split('.')[0]
@@ -128,7 +129,6 @@ class Tub(object):
             nums = sorted(nums)
             
         return nums 
-
 
     @property
     def inputs(self):
@@ -147,7 +147,7 @@ class Tub(object):
         try:
             with open(path, 'w') as fp:
                 json.dump(json_data, fp)
-                #print('wrote record:', json_data)
+
         except TypeError:
             print('troubles with record:', json_data)
         except FileNotFoundError:
@@ -161,11 +161,8 @@ class Tub(object):
         files = glob.glob(os.path.join(self.path, 'record_*.json'))
         return len(files)
 
-
-
-
     def make_record_paths_absolute(self, record_dict):
-        #make paths absolute
+        # make paths absolute
         d = {}
         for k, v in record_dict.items():
             if type(v) == str: #filename
@@ -175,14 +172,11 @@ class Tub(object):
 
         return d
 
-
-
-
     def check(self, fix=False):
-        '''
+        """
         Iterate over all records and make sure we can load them.
         Optionally remove records that cause a problem.
-        '''
+        """
         print('Checking tub:%s.' % self.path)
         print('Found: %d records.' % self.get_num_records())
         problems = False
@@ -236,6 +230,17 @@ class Tub(object):
                 img.save(os.path.join(self.path, name))
                 json_data[key]=name
 
+            elif typ == 'gray16_array':
+                # save np.uint16 as a 16bit png
+                img = Image.fromarray(np.uint16(val))
+                name = self.make_file_name(key, ext='.png')
+                img.save(os.path.join(self.path, name))
+                json_data[key]=name
+                
+            elif typ == 'nparray':
+                # convert np array to python so it is jsonable
+                json_data[key] = val.tolist()
+
             else:
                 msg = 'Tub does not know what to do with this type {}'.format(typ)
                 raise TypeError(msg)
@@ -246,9 +251,9 @@ class Tub(object):
         return self.current_ix
 
     def erase_last_n_records(self, num_erase):
-        '''
+        """
         erase N records from the disc and move current back accordingly
-        '''
+        """
         last_erase = self.current_ix
         first_erase = last_erase - num_erase
         self.current_ix = first_erase - 1
@@ -264,13 +269,13 @@ class Tub(object):
         json_path = self.get_json_record_path(i)
         if os.path.exists(json_path):
             os.unlink(json_path)
-        img_filename = '%d_cam-image_array_.jpg' % (i)
+        img_filename = '%d_cam-image_array_.jpg' % i
         img_path = os.path.join(self.path, img_filename)
         if os.path.exists(img_path):
             os.unlink(img_path)
 
     def get_json_record_path(self, ix):
-        return os.path.join(self.path, 'record_'+str(ix)+'.json')
+        return os.path.join(self.path, 'record_' + str(ix) + '.json')
 
     def get_json_record(self, ix):
         path = self.get_json_record_path(ix)
@@ -288,43 +293,36 @@ class Tub(object):
         record_dict = self.make_record_paths_absolute(json_data)
         return record_dict
 
-
     def get_record(self, ix):
-
         json_data = self.get_json_record(ix)
         data = self.read_record(json_data)
         return data
 
-
-
     def read_record(self, record_dict):
-        data={}
+        data = {}
         for key, val in record_dict.items():
             typ = self.get_input_type(key)
-
-            #load objects that were saved as separate files
+            # load objects that were saved as separate files
             if typ == 'image_array':
                 img = Image.open((val))
                 val = np.array(img)
-
             data[key] = val
-
-
         return data
 
-
     def gather_records(self):
-        ri = lambda fnm : int( os.path.basename(fnm).split('_')[1].split('.')[0] )
-
+        ri = lambda fnm: int(os.path.basename(fnm).split('_')[1].split('.')[0])
         record_paths = glob.glob(os.path.join(self.path, 'record_*.json'))
         if len(self.exclude) > 0:
             record_paths = [f for f in record_paths if ri(f) not in self.exclude]
         record_paths.sort(key=ri)
         return record_paths
 
-    def make_file_name(self, key, ext='.png'):
-        name = '_'.join([str(self.current_ix), key, ext])
-        name = name = name.replace('/', '-')
+    def make_file_name(self, key, ext='.png', ix=None):
+        this_ix = ix
+        if this_ix is None:
+            this_ix = self.current_ix
+        name = '_'.join([str(this_ix), key, ext])
+        name = name.replace('/', '-')
         return name
 
     def delete(self):
@@ -334,7 +332,6 @@ class Tub(object):
 
     def shutdown(self):
         pass
-
 
     def excluded(self, index):
         return index in self.exclude
@@ -354,78 +351,8 @@ class Tub(object):
             if os.path.exists(self.exclude_path):
                 os.unlink(self.exclude_path)
         else:
-            with open(self.exclude_path,'w') as f:
-                json.dump( list(self.exclude), f )
-
-    def get_record_gen(self, record_transform=None, shuffle=True, df=None):
-
-        if df is None:
-            df = self.get_df()
-
-
-        while True:
-            for _, row in self.df.iterrows():
-                if shuffle:
-                    record_dict = df.sample(n=1).to_dict(orient='record')[0]
-                else:
-                    record_dict = row
-
-                if record_transform:
-                    record_dict = record_transform(record_dict)
-
-                record_dict = self.read_record(record_dict)
-
-                yield record_dict
-
-
-    def get_batch_gen(self, keys, record_transform=None, batch_size=128, shuffle=True, df=None):
-
-        record_gen = self.get_record_gen(record_transform, shuffle=shuffle, df=df)
-
-        if keys == None:
-            keys = list(self.df.columns)
-
-        while True:
-            record_list = []
-            for _ in range(batch_size):
-                record_list.append(next(record_gen))
-
-            batch_arrays = {}
-            for i, k in enumerate(keys):
-                arr = np.array([r[k] for r in record_list])
-                # if len(arr.shape) == 1:
-                #    arr = arr.reshape(arr.shape + (1,))
-                batch_arrays[k] = arr
-
-            yield batch_arrays
-
-
-    def get_train_gen(self, X_keys, Y_keys, batch_size=128, record_transform=None, df=None):
-
-        batch_gen = self.get_batch_gen(X_keys + Y_keys,
-                                       batch_size=batch_size, record_transform=record_transform, df=df)
-
-        while True:
-            batch = next(batch_gen)
-            X = [batch[k] for k in X_keys]
-            Y = [batch[k] for k in Y_keys]
-            yield X, Y
-
-
-    def get_train_val_gen(self, X_keys, Y_keys, batch_size=128, record_transform=None, train_frac=.8):
-        train_df = train=self.df.sample(frac=train_frac,random_state=200)
-        val_df = self.df.drop(train_df.index)
-
-        train_gen = self.get_train_gen(X_keys=X_keys, Y_keys=Y_keys, batch_size=batch_size,
-                                       record_transform=record_transform, df=train_df)
-
-        val_gen = self.get_train_gen(X_keys=X_keys, Y_keys=Y_keys, batch_size=batch_size,
-                                       record_transform=record_transform, df=val_df)
-
-        return train_gen, val_gen
-
-
-
+            with open(self.exclude_path, 'w') as f:
+                json.dump(list(self.exclude), f)
 
 
 class TubWriter(Tub):
@@ -433,15 +360,11 @@ class TubWriter(Tub):
         super(TubWriter, self).__init__(*args, **kwargs)
 
     def run(self, *args):
-        '''
-        API function needed to use as a Donkey part.
-
-        Accepts values, pairs them with their inputs keys and saves them
-        to disk.
-        '''
+        """
+        API function needed to use as a Donkey part. Accepts values,
+        pairs them with their inputs keys and saves them to disk.
+        """
         assert len(self.inputs) == len(args)
-
-        self.record_time = int(time.time() - self.start_time)
         record = dict(zip(self.inputs, args))
         self.put_record(record)
         return self.current_ix
@@ -452,22 +375,20 @@ class TubReader(Tub):
         super(TubReader, self).__init__(*args, **kwargs)
 
     def run(self, *args):
-        '''
+        """
         API function needed to use as a Donkey part.
-
         Accepts keys to read from the tub and retrieves them sequentially.
-        '''
-
-        record = self.get_record()
-        record = [record[key] for key in args ]
+        """
+        record_dict = self.get_record()
+        record = [record_dict[key] for key in args]
         return record
 
 
-class TubHandler():
+class TubHandler:
     def __init__(self, path):
         self.path = os.path.expanduser(path)
 
-    def get_tub_list(self,path):
+    def get_tub_list(self, path):
         folders = next(os.walk(path))[1]
         return folders
 
@@ -481,14 +402,13 @@ class TubHandler():
 
         folders = self.get_tub_list(path)
         numbers = [get_tub_num(x) for x in folders]
-        #numbers = [i for i in numbers if i is not None]
         next_number = max(numbers+[0]) + 1
         return next_number
 
     def create_tub_path(self):
         tub_num = self.next_tub_number(self.path)
         date = datetime.datetime.now().strftime('%y-%m-%d')
-        name = '_'.join(['tub',str(tub_num),date])
+        name = '_'.join(['tub', str(tub_num), date])
         tub_path = os.path.join(self.path, name)
         return tub_path
 
@@ -496,7 +416,6 @@ class TubHandler():
         tub_path = self.create_tub_path()
         tw = TubWriter(path=tub_path, inputs=inputs, types=types, user_meta=user_meta)
         return tw
-
 
 
 class TubImageStacker(Tub):
@@ -559,7 +478,6 @@ class TubImageStacker(Tub):
         return data
 
 
-
 class TubTimeStacker(TubImageStacker):
     '''
     A Tub for training N with records stacked through time. 
@@ -597,7 +515,7 @@ class TubTimeStacker(TubImageStacker):
             for key, val in json_data.items():
                 typ = self.get_input_type(key)
 
-                #load only the first image saved as separate files
+                # load only the first image saved as separate files
                 if typ == 'image' and i == 0:
                     val = Image.open(os.path.join(self.path, val))
                     data[key] = val                    
@@ -616,6 +534,8 @@ class TubTimeStacker(TubImageStacker):
 
 class TubGroup(Tub):
     def __init__(self, tub_paths):
+        import pandas as pd
+
         tub_paths = self.resolve_tub_paths(tub_paths)
         print('TubGroup:tubpaths:', tub_paths)
         tubs = [Tub(path) for path in tub_paths]
@@ -627,16 +547,13 @@ class TubGroup(Tub):
             record_count += len(t.df)
             self.input_types.update(dict(zip(t.inputs, t.types)))
 
-        print('joining the tubs {} records together. This could take {} minutes.'.format(record_count,
-                                                                                         int(record_count / 300000)))
+        print('joining the tubs {} records together. This could take {} minutes.'
+              .format(record_count, int(record_count / 300000)))
 
         self.meta = {'inputs': list(self.input_types.keys()),
                      'types': list(self.input_types.values())}
 
-
         self.df = pd.concat([t.df for t in tubs], axis=0, join='inner')
-
-
 
     def find_tub_paths(self, path):
         matches = []
@@ -645,7 +562,6 @@ class TubGroup(Tub):
             if os.path.isdir(file):
                 matches.append(os.path.join(os.path.abspath(file)))
         return matches
-
 
     def resolve_tub_paths(self, path_list):
         path_list = path_list.split(",")

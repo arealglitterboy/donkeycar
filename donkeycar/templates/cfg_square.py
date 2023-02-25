@@ -50,7 +50,7 @@ BATCH_SIZE = 128
 TRAIN_TEST_SPLIT = 0.8
 MAX_EPOCHS = 100
 SHOW_PLOT = True
-VEBOSE_TRAIN = True
+VERBOSE_TRAIN = True
 USE_EARLY_STOP = True
 EARLY_STOP_PATIENCE = 5
 MIN_DELTA = .0005
@@ -58,17 +58,11 @@ PRINT_MODEL_SUMMARY = True      #print layers and weights to stdout
 OPTIMIZER = None                #adam, sgd, rmsprop, etc.. None accepts default
 LEARNING_RATE = 0.001           #only used when OPTIMIZER specified
 LEARNING_RATE_DECAY = 0.0       #only used when OPTIMIZER specified
-CACHE_IMAGES = True             #keep images in memory. will speed succesive epochs, but crater if not enough mem.
 PRUNE_CNN = False
 PRUNE_PERCENT_TARGET = 75 # The desired percentage of pruning.
 PRUNE_PERCENT_PER_ITERATION = 20 # Percenge of pruning that is perform per iteration.
 PRUNE_VAL_LOSS_DEGRADATION_LIMIT = 0.2 # The max amout of validation loss that is permitted during pruning.
 PRUNE_EVAL_PERCENT_OF_DATASET = .05  # percent of dataset used to perform evaluation of model.
-
-# Region of interst cropping
-# only supported in Categorical and Linear models.
-ROI_CROP_TOP = 0
-ROI_CROP_BOTTOM = 0
 
 #model transfer options
 FREEZE_LAYERS = False
@@ -77,7 +71,7 @@ NUM_LAST_LAYERS_TO_TRAIN = 7
 #For the categorical model, this limits the upper bound of the learned throttle
 #it's very IMPORTANT that this value is matched from the training PC config.py and the robot.py
 #and ideally wouldn't change once set.
-MODEL_CATEGORICAL_MAX_THROTTLE_RANGE = 0.5
+MODEL_CATEGORICAL_MAX_THROTTLE_RANGE = 0.8
 
 #RNN or 3D
 SEQUENCE_LENGTH = 3

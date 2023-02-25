@@ -7,10 +7,14 @@ Created on Sun Jun 25 10:44:24 2017
 """
 
 import time
-from statistics import median
+import numpy as np
+import logging
 from threading import Thread
 from .memory import Memory
 from prettytable import PrettyTable
+import traceback
+
+logger = logging.getLogger(__name__)
 
 
 class PartProfiler:
@@ -33,9 +37,11 @@ class PartProfiler:
         self.records[p]['times'][-1] = delta
 
     def report(self):
-        print("Part Profile Summary: (times in ms)")
+        logger.info("Part Profile Summary: (times in ms)")
         pt = PrettyTable()
-        pt.field_names = ["part", "max", "min", "avg", "median"]
+        field_names = ["part", "max", "min", "avg"]
+        pctile = [50, 90, 99, 99.9]
+        pt.field_names = field_names + [str(p) + '%' for p in pctile]
         for p, val in self.records.items():
             # remove first and last entry because you there could be one-off
             # time spent in initialisations, and the latest diff could be
@@ -43,12 +49,13 @@ class PartProfiler:
             arr = val['times'][1:-1]
             if len(arr) == 0:
                 continue
-            pt.add_row([p.__class__.__name__,
-                        "%.2f" % (max(arr) * 1000),
-                        "%.2f" % (min(arr) * 1000),
-                        "%.2f" % (sum(arr) / len(arr) * 1000),
-                        "%.2f" % (median(arr) * 1000)])
-        print(pt)
+            row = [p.__class__.__name__,
+                   "%.2f" % (max(arr) * 1000),
+                   "%.2f" % (min(arr) * 1000),
+                   "%.2f" % (sum(arr) / len(arr) * 1000)]
+            row += ["%.2f" % (np.percentile(arr, p) * 1000) for p in pctile]
+            pt.add_row(row)
+        logger.info('\n' + str(pt))
 
 
 class Vehicle:
@@ -69,13 +76,15 @@ class Vehicle:
 
         Parameters
         ----------
+            part: class
+                donkey vehicle part has run() attribute
             inputs : list
                 Channel names to get from memory.
             outputs : list
                 Channel names to save to memory.
             threaded : boolean
                 If a part should be run in a separate thread.
-            run_condition : boolean
+            run_condition : str
                 If a part should be run or not
         """
         assert type(inputs) is list, "inputs is not a list: %r" % inputs
@@ -83,7 +92,7 @@ class Vehicle:
         assert type(threaded) is bool, "threaded is not a boolean: %r" % threaded
 
         p = part
-        print('Adding part {}.'.format(p.__class__.__name__))
+        logger.info('Adding part {}.'.format(p.__class__.__name__))
         entry = {}
         entry['part'] = p
         entry['inputs'] = inputs
@@ -121,6 +130,8 @@ class Vehicle:
         max_loop_count : int
             Maximum number of loops the drive loop should execute. This is
             used for testing that all the parts of the vehicle work.
+        verbose: bool
+            If debug output should be printed into shell
         """
 
         try:
@@ -133,7 +144,7 @@ class Vehicle:
                     entry.get('thread').start()
 
             # wait until the parts warm up.
-            print('Starting vehicle...')
+            logger.info('Starting vehicle at {} Hz'.format(rate_hz))
 
             loop_count = 0
             while self.on:
@@ -152,7 +163,7 @@ class Vehicle:
                 else:
                     # print a message when could not maintain loop rate.
                     if verbose:
-                        print('WARN::Vehicle: jitter violation in vehicle loop '
+                        logger.info('WARN::Vehicle: jitter violation in vehicle loop '
                               'with {0:4.0f}ms'.format(abs(1000 * sleep_time)))
 
                 if verbose and loop_count % 200 == 0:
@@ -160,6 +171,8 @@ class Vehicle:
 
         except KeyboardInterrupt:
             pass
+        except Exception as e:
+            traceback.print_exc()
         finally:
             self.stop()
 
@@ -195,7 +208,7 @@ class Vehicle:
                 self.profiler.on_part_finished(p)
 
     def stop(self):        
-        print('Shutting down vehicle and its parts...')
+        logger.info('Shutting down vehicle and its parts...')
         for entry in self.parts:
             try:
                 entry['part'].shutdown()
@@ -203,6 +216,6 @@ class Vehicle:
                 # usually from missing shutdown method, which should be optional
                 pass
             except Exception as e:
-                print(e)
+                logger.error(e)
 
         self.profiler.report()

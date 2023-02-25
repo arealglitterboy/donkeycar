@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Wed Sep 13 21:27:44 2017
@@ -7,11 +6,14 @@ Created on Wed Sep 13 21:27:44 2017
 """
 import os
 import types
-    
+from logging import getLogger
+
+logger = getLogger(__name__)
+
+
 class Config:
     
-    def from_pyfile(self, filename, silent=False):
-        #filename = os.path.join(self.root_path, filename)
+    def from_pyfile(self, filename):
         d = types.ModuleType('config')
         d.__file__ = filename
         try:
@@ -26,14 +28,13 @@ class Config:
     def from_object(self, obj):
         for key in dir(obj):
             if key.isupper():
-                #self[key] = getattr(obj, key)
                 setattr(self, key, getattr(obj, key))
                 
     def __str__(self):
         result = []
         for key in dir(self):
             if key.isupper():
-                result.append((key, getattr(self,key)))
+                result.append((key, getattr(self, key)))
         return str(result)
 
     def show(self):
@@ -42,8 +43,7 @@ class Config:
                 print(attr, ":", getattr(self, attr))
 
 
-
-def load_config(config_path=None):
+def load_config(config_path=None, myconfig="myconfig.py"):
     
     if config_path is None:
         import __main__ as main
@@ -54,31 +54,18 @@ def load_config(config_path=None):
             if os.path.exists(local_config):
                 config_path = local_config
     
-    print('loading config file: {}'.format(config_path))
+    logger.info(f'loading config file: {config_path}')
     cfg = Config()
     cfg.from_pyfile(config_path)
 
-    #look for the optional myconfig.py in the same path.
-    personal_cfg_path = config_path.replace("config.py", "myconfig.py")
+    # look for the optional myconfig.py in the same path.
+    personal_cfg_path = config_path.replace("config.py", myconfig)
     if os.path.exists(personal_cfg_path):
-        print("loading personal config over-rides")
+        logger.info(f"loading personal config over-rides from {myconfig}")
         personal_cfg = Config()
         personal_cfg.from_pyfile(personal_cfg_path)
-        #personal_cfg.show()
-
         cfg.from_object(personal_cfg)
+    else:
+        logger.warning(f"personal config: file not found {personal_cfg_path}")
 
-        #print("final settings:")
-        #cfg.show()
-        
-    
-    #derivative settings
-    if hasattr(cfg, 'IMAGE_H') and hasattr(cfg, 'IMAGE_W'): 
-        cfg.TARGET_H = cfg.IMAGE_H - cfg.ROI_CROP_TOP - cfg.ROI_CROP_BOTTOM
-        cfg.TARGET_W = cfg.IMAGE_W
-        cfg.TARGET_D = cfg.IMAGE_DEPTH
-
-    print()
-
-    print('config loaded')
     return cfg

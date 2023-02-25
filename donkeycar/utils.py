@@ -16,22 +16,42 @@ import math
 import random
 import time
 import signal
-
+import logging
+from typing import List, Any, Tuple, Union
 
 from PIL import Image
 import numpy as np
 
+logger = logging.getLogger(__name__)
+
+
+ONE_BYTE_SCALE = 1.0 / 255.0
+
+
+class EqMemorizedString:
+    """ String that remembers what it was compared against """
+    def __init__(self, string):
+        self.string = string
+        self.mem = set()
+
+    def __eq__(self, other):
+        self.mem.add(other)
+        return self.string == other
+
+    def mem_as_str(self):
+        return ', '.join(self.mem)
+
+
 '''
 IMAGES
 '''
-one_byte_scale = 1.0 / 255.0
 
 
 def scale(im, size=128):
-    '''
+    """
     accepts: PIL image, size of square sides
-    returns: PIL image scaled so sides lenght = size 
-    '''
+    returns: PIL image scaled so sides length == size
+    """
     size = (size,size)
     im.thumbnail(size, Image.ANTIALIAS)
     return im
@@ -71,8 +91,8 @@ def arr_to_img(arr):
 
 def img_to_arr(img):
     '''
-    accepts: numpy array with shape (Height, Width, Channels)
-    returns: binary stream (used to save to database)
+    accepts: PIL image
+    returns: a numpy uint8 image
     '''
     return np.array(img)
 
@@ -94,75 +114,96 @@ def binary_to_img(binary):
 
 
 def norm_img(img):
-    return (img - img.mean() / np.std(img)) * one_byte_scale
-
-
-def create_video(img_dir_path, output_video_path):
-    import envoy
-    # Setup path to the images with telemetry.
-    full_path = os.path.join(img_dir_path, 'frame_*.png')
-
-    # Run ffmpeg.
-    command = ("""ffmpeg
-               -framerate 30/1
-               -pattern_type glob -i '%s'
-               -c:v libx264
-               -r 15
-               -pix_fmt yuv420p
-               -y
-               %s""" % (full_path, output_video_path))
-    response = envoy.run(command)
+    return (img - img.mean() / np.std(img)) * ONE_BYTE_SCALE
 
 
 def rgb2gray(rgb):
-    '''
-    take a numpy rgb image return a new single channel image converted to greyscale
-    '''
-    return np.dot(rgb[...,:3], [0.299, 0.587, 0.114])
+    """
+    Convert normalized numpy image array with shape (w, h, 3) into greyscale
+    image of shape (w, h)
+    :param rgb:     normalized [0,1] float32 numpy image array or [0,255] uint8
+                    numpy image array with shape(w,h,3)
+    :return:        normalized [0,1] float32 numpy image array shape(w,h) or
+                    [0,255] uint8 numpy array in grey scale
+    """
+    # this will translate a uint8 array into a float64 one
+    grey = np.dot(rgb[..., :3], [0.299, 0.587, 0.114])
+    # transform back if the input is a uint8 array
+    if rgb.dtype.type is np.uint8:
+        grey = round(grey).astype(np.uint8)
+    return grey
 
 
 def img_crop(img_arr, top, bottom):
-    
-    if bottom is 0:
+    if bottom == 0:
         end = img_arr.shape[0]
     else:
         end = -bottom
     return img_arr[top:end, ...]
 
 
-def normalize_and_crop(img_arr, cfg):
-    img_arr = img_arr.astype(np.float32) * one_byte_scale
-    if cfg.ROI_CROP_TOP or cfg.ROI_CROP_BOTTOM:
-        img_arr = img_crop(img_arr, cfg.ROI_CROP_TOP, cfg.ROI_CROP_BOTTOM)
-        if len(img_arr.shape) == 2:
-            img_arrH = img_arr.shape[0]
-            img_arrW = img_arr.shape[1]
-            img_arr = img_arr.reshape(img_arrH, img_arrW, 1)
-    return img_arr
+def normalize_image(img_arr_uint):
+    """
+    Convert uint8 numpy image array into [0,1] float image array
+    :param img_arr_uint:    [0,255]uint8 numpy image array
+    :return:                [0,1] float32 numpy image array
+    """
+    return img_arr_uint.astype(np.float64) * ONE_BYTE_SCALE
 
 
-def load_scaled_image_arr(filename, cfg):
-    '''
-    load an image from the filename, and use the cfg to resize if needed
-    also apply cropping and normalize
-    '''
-    import donkeycar as dk
+def denormalize_image(img_arr_float):
+    """
+    :param img_arr_float:   [0,1] float numpy image array
+    :return:                [0,255]uint8 numpy image array
+    """
+    return (img_arr_float * 255.0).astype(np.uint8)
+
+
+def load_pil_image(filename, cfg):
+    """Loads an image from a file path as a PIL image. Also handles resizing.
+
+    Args:
+        filename (string): path to the image file
+        cfg (object): donkey configuration file
+
+    Returns: a PIL image.
+    """
     try:
         img = Image.open(filename)
         if img.height != cfg.IMAGE_H or img.width != cfg.IMAGE_W:
             img = img.resize((cfg.IMAGE_W, cfg.IMAGE_H))
-        img_arr = np.array(img)
-        img_arr = normalize_and_crop(img_arr, cfg)
-        croppedImgH = img_arr.shape[0]
-        croppedImgW = img_arr.shape[1]
-        if img_arr.shape[2] == 3 and cfg.IMAGE_DEPTH == 1:
-            img_arr = dk.utils.rgb2gray(img_arr).reshape(croppedImgH, croppedImgW, 1)
+
+        if cfg.IMAGE_DEPTH == 1:
+            img = img.convert('L')
+        
+        return img
+
     except Exception as e:
         print(e)
         print('failed to load image:', filename)
-        img_arr = None
-    return img_arr
+        return None
 
+
+def load_image(filename, cfg):
+    """
+    :param string filename:     path to image file
+    :param cfg:                 donkey config
+    :return np.ndarray:         numpy uint8 image array
+    """
+    img = load_pil_image(filename, cfg)
+
+    if not img:
+        return None
+
+    img_arr = np.asarray(img)
+
+    # If the PIL image is greyscale, the np array will have shape (H, W)
+    # Need to add a depth channel by expanding to (H, W, 1)
+    if img.mode == 'L':
+        h, w = img_arr.shape[:2]
+        img_arr = img_arr.reshape(h, w, 1)
+
+    return img_arr
 
 '''
 FILES
@@ -186,11 +227,11 @@ def make_dir(path):
 
 
 def zip_dir(dir_path, zip_path):
-    """ 
+    """
     Create and save a zipfile of a one level directory
     """
     file_paths = glob.glob(dir_path + "/*") #create path to search for files.
-    
+
     zf = zipfile.ZipFile(zip_path, 'w')
     dir_name = os.path.basename(dir_path)
     for p in file_paths:
@@ -208,6 +249,9 @@ functions to help converte between floating point numbers and categories.
 
 
 def clamp(n, min, max):
+    if min > max:
+        return clamp(n, max, min)
+
     if n < min:
         return min
     if n > max:
@@ -222,7 +266,7 @@ def linear_bin(a, N=15, offset=1, R=2.0):
     offset one hot bin by offset, commonly R/2
     '''
     a = a + offset
-    b = round(a / (R/(N-offset)))
+    b = round(a / (R / (N - offset)))
     arr = np.zeros(N)
     b = clamp(b, 0, N - 1)
     arr[int(b)] = 1
@@ -236,13 +280,13 @@ def linear_unbin(arr, N=15, offset=-1, R=2.0):
     rescale given R range and offset
     '''
     b = np.argmax(arr)
-    a = b *(R/(N + offset)) + offset
+    a = b * (R / (N + offset)) + offset
     return a
 
 
 def map_range(x, X_min, X_max, Y_min, Y_max):
-    ''' 
-    Linear mapping between two ranges of values 
+    '''
+    Linear mapping between two ranges of values
     '''
     X_range = X_max - X_min
     Y_range = Y_max - Y_min
@@ -251,6 +295,21 @@ def map_range(x, X_min, X_max, Y_min, Y_max):
     y = ((x-X_min) / XY_ratio + Y_min) // 1
 
     return int(y)
+
+
+def map_range_float(x, X_min, X_max, Y_min, Y_max):
+    '''
+    Same as map_range but supports floats return, rounded to 2 decimal places
+    '''
+    X_range = X_max - X_min
+    Y_range = Y_max - Y_min
+    XY_ratio = X_range/Y_range
+
+    y = ((x-X_min) / XY_ratio + Y_min)
+
+    # print("y= {}".format(y))
+
+    return round(y,2)
 
 '''
 ANGLES
@@ -284,15 +343,76 @@ def dist(x1, y1, x2, y2):
 NETWORKING
 '''
 
+
 def my_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.connect(('192.0.0.8', 1027))
     return s.getsockname()[0]
 
+'''
+THROTTLE
+'''
+
+STEERING_MIN = -1.
+STEERING_MAX = 1.
+# Scale throttle ~ 0.5 - 1.0 depending on the steering angle
+EXP_SCALING_FACTOR = 0.5
+DAMPENING = 0.05
+
+
+def _steering(input_value):
+    input_value = clamp(input_value, STEERING_MIN, STEERING_MAX)
+    return ((input_value - STEERING_MIN) / (STEERING_MAX - STEERING_MIN))
+
+
+def throttle(input_value):
+    magnitude = _steering(input_value)
+    decay = math.exp(magnitude * EXP_SCALING_FACTOR)
+    dampening = DAMPENING * magnitude
+    return ((1 / decay) - dampening)
 
 '''
 OTHER
 '''
+
+def is_number_type(i):
+    return type(i) == int or type(i) == float;
+
+
+def sign(x):
+    if x > 0:
+        return 1
+    if x < 0:
+        return -1
+    return 0
+
+
+def compare_to(
+    value:float,      # IN : value to compare
+    toValue:float,    # IN : value to compare with tolerance
+    tolerance:float): # IN : non-negative tolerance
+                      # RET: 1 if value > toValue + tolerance
+                      #      -1 if value < toValue - tolerance
+                      #      otherwise zero
+    if (toValue - value) > tolerance:
+        return -1
+    if (value - toValue) > tolerance:
+        return 1
+    return 0
+
+
+def map_frange(x, X_min, X_max, Y_min, Y_max):
+    '''
+    Linear mapping between two ranges of values
+    map from x range to y range
+    '''
+    X_range = X_max - X_min
+    Y_range = Y_max - Y_min
+    XY_ratio = X_range/Y_range
+
+    y = ((x-X_min) / XY_ratio + Y_min)
+
+    return y
 
 
 def merge_two_dicts(x, y):
@@ -302,10 +422,9 @@ def merge_two_dicts(x, y):
     return z
 
 
-
 def param_gen(params):
     '''
-    Accepts a dictionary of parameter options and returns 
+    Accepts a dictionary of parameter options and returns
     a list of dictionary with the permutations of the parameters.
     '''
     for p in itertools.product(*params.values()):
@@ -330,7 +449,6 @@ def run_shell_command(cmd, cwd=None, timeout=15):
     return out, err, proc.pid
 
 
-
 def kill(proc_id):
     os.kill(proc_id, signal.SIGINT)
 
@@ -339,183 +457,123 @@ def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
 
-"""
-Tub management
-"""
-
-
-def expand_path_masks(paths):
-    '''
-    take a list of paths and expand any wildcards
-    returns a new list of paths fully expanded
-    '''
-    import glob
-    expanded_paths = []
-    for path in paths:
-        if '*' in path or '?' in path:
-            mask_paths = glob.glob(path)
-            expanded_paths += mask_paths
-        else:
-            expanded_paths.append(path)
-
-    return expanded_paths
-
-
-def gather_tub_paths(cfg, tub_names=None):
-    '''
-    takes as input the configuration, and the comma seperated list of tub paths
-    returns a list of Tub paths
-    '''
-    if tub_names:
-        if type(tub_names) == list:
-            tub_paths = [os.path.expanduser(n) for n in tub_names]
-        else:
-            tub_paths = [os.path.expanduser(n) for n in tub_names.split(',')]
-        return expand_path_masks(tub_paths)
-    else:
-        paths = [os.path.join(cfg.DATA_PATH, n) for n in os.listdir(cfg.DATA_PATH)]
-        dir_paths = []
-        for p in paths:
-            if os.path.isdir(p):
-                dir_paths.append(p)
-        return dir_paths
-
-
-def gather_tubs(cfg, tub_names):    
-    '''
-    takes as input the configuration, and the comma seperated list of tub paths
-    returns a list of Tub objects initialized to each path
-    '''
-    from donkeycar.parts.datastore import Tub
-    
-    tub_paths = gather_tub_paths(cfg, tub_names)
-    tubs = [Tub(p) for p in tub_paths]
-
-    return tubs
-
-"""
-Training helpers
-"""
-
-def get_image_index(fnm):
-    sl = os.path.basename(fnm).split('_')
-    return int(sl[0])
-
-
-def get_record_index(fnm):
-    sl = os.path.basename(fnm).split('_')
-    return int(sl[1].split('.')[0])
-
-
-def gather_records(cfg, tub_names, opts=None, verbose=False):
-
-    tubs = gather_tubs(cfg, tub_names)
-
-    records = []
-
-    for tub in tubs:
-        if verbose:
-            print(tub.path)
-        record_paths = tub.gather_records()
-        records += record_paths
-
-    return records
-
-
-def get_model_by_type(model_type, cfg):
+def get_model_by_type(model_type: str, cfg: 'Config') -> Union['KerasPilot', 'FastAiPilot']:
     '''
     given the string model_type and the configuration settings in cfg
     create a Keras model and return it.
     '''
-    from donkeycar.parts.keras import KerasRNN_LSTM, KerasBehavioral, \
-        KerasCategorical, KerasIMU, KerasLinear, Keras3D_CNN, \
-        KerasLocalizer, KerasLatent
-    from donkeycar.parts.tflite import TFLitePilot
- 
+    from donkeycar.parts.keras import KerasCategorical, KerasLinear, \
+        KerasInferred, KerasIMU, KerasMemory, KerasBehavioral, KerasLocalizer, \
+        KerasLSTM, Keras3D_CNN
+    from donkeycar.parts.interpreter import KerasInterpreter, TfLite, TensorRT, \
+        FastAIInterpreter
+
     if model_type is None:
         model_type = cfg.DEFAULT_MODEL_TYPE
-    print("\"get_model_by_type\" model Type is: {}".format(model_type))
-
+    logger.info(f'get_model_by_type: model type is: {model_type}')
     input_shape = (cfg.IMAGE_H, cfg.IMAGE_W, cfg.IMAGE_DEPTH)
-    roi_crop = (cfg.ROI_CROP_TOP, cfg.ROI_CROP_BOTTOM)
-
-    if model_type == "tflite_linear":
-        kl = TFLitePilot()
-    elif model_type == "localizer" or cfg.TRAIN_LOCALIZER:
-        kl = KerasLocalizer(num_locations=cfg.NUM_LOCATIONS, input_shape=input_shape)
-    elif model_type == "behavior" or cfg.TRAIN_BEHAVIORS:
-        kl = KerasBehavioral(num_outputs=2, num_behavior_inputs=len(cfg.BEHAVIOR_LIST), input_shape=input_shape)        
-    elif model_type == "imu":
-        kl = KerasIMU(num_outputs=2, num_imu_inputs=6, input_shape=input_shape)        
-    elif model_type == "linear":
-        kl = KerasLinear(input_shape=input_shape, roi_crop=roi_crop)
-    elif model_type == "tensorrt_linear":
-        # Aggressively lazy load this. This module imports pycuda.autoinit which causes a lot of unexpected things
-        # to happen when using TF-GPU for training.
-        from donkeycar.parts.tensorrt import TensorRTLinear
-        kl = TensorRTLinear(cfg=cfg)
-    elif model_type == "coral_tflite_linear":
-        from donkeycar.parts.coral import CoralLinearPilot
-        kl = CoralLinearPilot()
-    elif model_type == "3d":
-        kl = Keras3D_CNN(image_w=cfg.IMAGE_W, image_h=cfg.IMAGE_H, image_d=cfg.IMAGE_DEPTH, seq_length=cfg.SEQUENCE_LENGTH)
-    elif model_type == "rnn":
-        kl = KerasRNN_LSTM(image_w=cfg.IMAGE_W, image_h=cfg.IMAGE_H, image_d=cfg.IMAGE_DEPTH, seq_length=cfg.SEQUENCE_LENGTH)
-    elif model_type == "categorical":
-        kl = KerasCategorical(input_shape=input_shape, throttle_range=cfg.MODEL_CATEGORICAL_MAX_THROTTLE_RANGE, roi_crop=roi_crop)
-    elif model_type == "latent":
-        kl = KerasLatent(input_shape=input_shape)
-    elif model_type == "fastai":
-        from donkeycar.parts.fastai import FastAiPilot
-        kl = FastAiPilot()
+    if 'tflite_' in model_type:
+        interpreter = TfLite()
+        used_model_type = model_type.replace('tflite_', '')
+    elif 'tensorrt_' in model_type:
+        interpreter = TensorRT()
+        used_model_type = model_type.replace('tensorrt_', '')
+    elif 'fastai_' in model_type:
+        interpreter = FastAIInterpreter()
+        used_model_type = model_type.replace('fastai_', '')
+        if used_model_type == "linear":
+            from donkeycar.parts.fastai import FastAILinear
+            return FastAILinear(interpreter=interpreter, input_shape=input_shape)
     else:
-        raise Exception("unknown model type: %s" % model_type)
+        interpreter = KerasInterpreter()
+        used_model_type = model_type
 
+    used_model_type = EqMemorizedString(used_model_type)
+    if used_model_type == "linear":
+        kl = KerasLinear(interpreter=interpreter, input_shape=input_shape)
+    elif used_model_type == "categorical":
+        kl = KerasCategorical(
+            interpreter=interpreter,
+            input_shape=input_shape,
+            throttle_range=cfg.MODEL_CATEGORICAL_MAX_THROTTLE_RANGE)
+    elif used_model_type == 'inferred':
+        kl = KerasInferred(interpreter=interpreter, input_shape=input_shape)
+    elif used_model_type == "imu":
+        kl = KerasIMU(interpreter=interpreter, input_shape=input_shape)
+    elif used_model_type == "memory":
+        mem_length = getattr(cfg, 'SEQUENCE_LENGTH', 3)
+        mem_depth = getattr(cfg, 'MEM_DEPTH', 0)
+        kl = KerasMemory(interpreter=interpreter, input_shape=input_shape,
+                         mem_length=mem_length, mem_depth=mem_depth)
+    elif used_model_type == "behavior":
+        kl = KerasBehavioral(
+            interpreter=interpreter,
+            input_shape=input_shape,
+            throttle_range=cfg.MODEL_CATEGORICAL_MAX_THROTTLE_RANGE,
+            num_behavior_inputs=len(cfg.BEHAVIOR_LIST))
+    elif used_model_type == 'localizer':
+        kl = KerasLocalizer(interpreter=interpreter, input_shape=input_shape,
+                            num_locations=cfg.NUM_LOCATIONS)
+    elif used_model_type == 'rnn':
+        kl = KerasLSTM(interpreter=interpreter, input_shape=input_shape,
+                       seq_length=cfg.SEQUENCE_LENGTH)
+    elif used_model_type == '3d':
+        kl = Keras3D_CNN(interpreter=interpreter, input_shape=input_shape,
+                         seq_length=cfg.SEQUENCE_LENGTH)
+    else:
+        known = [k + u for k in ('', 'tflite_', 'tensorrt_')
+                 for u in used_model_type.mem]
+        raise ValueError(f"Unknown model type {model_type}, supported types are"
+                         f" { ', '.join(known)}")
     return kl
 
 
-def get_test_img(model):
-    '''
-    query the input to see what it likes
-    make an image capable of using with that test model
-    '''
-    assert(len(model.inputs) > 0)
+def get_test_img(keras_pilot):
+    """
+    query the input to see what it likes make an image capable of using with
+    that test model
+    :param keras_pilot:             input keras pilot
+    :return np.ndarry(np.uint8):    numpy random img array
+    """
     try:
-        count, h, w, ch = model.inputs[0].get_shape()
+        count, h, w, ch = keras_pilot.get_input_shapes()[0]
         seq_len = 0
     except Exception as e:
-        count, seq_len, h, w, ch = model.inputs[0].get_shape()
+        count, seq_len, h, w, ch = keras_pilot.get_input_shapes()[0]
 
     # generate random array in the right shape
-    img = np.random.rand(int(h), int(w), int(ch))
+    img = np.random.randint(0, 255, size=(h, w, ch))
+    return img.astype(np.uint8)
 
-    return img
 
-
-def train_test_split(data_list, shuffle=True, test_size=0.2):
+def train_test_split(data_list: List[Any],
+                     shuffle: bool = True,
+                     test_size: float = 0.2) -> Tuple[List[Any], List[Any]]:
     '''
-    take a list, split it into two sets while selecting a 
+    take a list, split it into two sets while selecting a
     random element in order to shuffle the results.
     use the test_size to choose the split percent.
     shuffle is always True, left there to be backwards compatible
     '''
-    assert shuffle
-    train_data = []
+    target_train_size = int(len(data_list) * (1. - test_size))
 
-    target_train_size = len(data_list) * (1. - test_size)
+    if shuffle:
+        train_data = []
+        i_sample = 0
+        while i_sample < target_train_size and len(data_list) > 1:
+            i_choice = random.randint(0, len(data_list) - 1)
+            train_data.append(data_list.pop(i_choice))
+            i_sample += 1
 
-    i_sample = 0
+        # remainder of the original list is the validation set
+        val_data = data_list
 
-    while i_sample < target_train_size and len(data_list) > 1:
-        i_choice = random.randint(0, len(data_list) - 1)
-        train_data.append(data_list.pop(i_choice))
-        i_sample += 1
-
-    # remainder of the original list is the validation set
-    val_data = data_list
+    else:
+        train_data = data_list[:target_train_size]
+        val_data = data_list[target_train_size:]
 
     return train_data, val_data
-    
+
 
 """
 Timers
