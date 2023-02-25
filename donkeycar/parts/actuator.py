@@ -332,7 +332,7 @@ class PWMThrottle:
     MIN_THROTTLE = -1
     MAX_THROTTLE = 1
 
-    def __init__(self, controller, max_pulse, min_pulse, zero_pulse):
+    def __init__(self, controller, max_pulse, min_pulse, zero_pulse): # NOTE Waveshare > def __init__(self, control=None, max_pulse=4095, min_pulse=-4095, zero_pulse=0):
 
         if controller is None:
             raise ValueError("PWMThrottle requires a set_pulse controller to be passed")
@@ -348,10 +348,12 @@ class PWMThrottle:
 
         # send zero pulse to calibrate ESC
         logger.info("Init ESC")
+        # NOTE Waveshare remove START
         self.controller.set_pulse(self.max_pulse)
         time.sleep(0.01)
         self.controller.set_pulse(self.min_pulse)
         time.sleep(0.01)
+        # NOTE Waveshare remove END
         self.controller.set_pulse(self.zero_pulse)
         time.sleep(1)
         self.running = True
@@ -373,6 +375,33 @@ class PWMThrottle:
     def run(self, throttle):
         self.run_threaded(throttle)
         self.controller.set_pulse(self.pulse)
+        """
+        # NOTE Waveshare had:
+        if throttle > 0:
+            pulse = dk.utils.map_range(throttle,
+                                    0, self.MAX_THROTTLE, 
+                                    self.zero_pulse, self.max_pulse)
+            self.controller.pwm.set_pwm(self.controller.channel,0,pulse)
+            self.controller.pwm.set_pwm(self.controller.channel+1,0,4095)
+            self.controller.pwm.set_pwm(self.controller.channel+2,0,0)
+            self.controller.pwm.set_pwm(self.controller.channel+3,0,0)
+            self.controller.pwm.set_pwm(self.controller.channel+4,0,pulse)
+            self.controller.pwm.set_pwm(self.controller.channel+7,0,pulse)
+            self.controller.pwm.set_pwm(self.controller.channel+6,0,4095)
+            self.controller.pwm.set_pwm(self.controller.channel+5,0,0)      
+        else:
+            pulse = dk.utils.map_range(throttle,
+                                    self.MIN_THROTTLE, 0, 
+                                    self.min_pulse, self.zero_pulse)
+            self.controller.pwm.set_pwm(self.controller.channel,0,- pulse)
+            self.controller.pwm.set_pwm(self.controller.channel+2,0,4095)
+            self.controller.pwm.set_pwm(self.controller.channel+1,0,0)
+            self.controller.pwm.set_pwm(self.controller.channel+3,0,- pulse)
+            self.controller.pwm.set_pwm(self.controller.channel+4,0,0)
+            self.controller.pwm.set_pwm(self.controller.channel+7,0,- pulse)
+            self.controller.pwm.set_pwm(self.controller.channel+5,0,4095)
+            self.controller.pwm.set_pwm(self.controller.channel+6,0,0)  
+        """
 
     def shutdown(self):
         # stop vehicle
@@ -488,16 +517,6 @@ class JHatReader:
         self.running = False
         time.sleep(0.1)
 
-
-#
-# Adafruit_DCMotor_Hat support is on the block for removal
-# - it is not integrated into any templates
-# - It is not documented in the docs or otherwise
-# A path forward would be to add a drive train option
-# DRIVE_TRAIN_TYPE = "DC_TWO_WHEEL_ADAFRUIT"
-# and integrate this into complete.py
-#
-@deprecated("This appears to be unsupported/undocumented in the framework. This may be removed in a future release")
 class Adafruit_DCMotor_Hat:
     ''' 
     Adafruit DC Motor Controller 

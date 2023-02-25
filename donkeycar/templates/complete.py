@@ -873,6 +873,7 @@ def add_drivetrain(V, cfg):
                                             left_pulse=cfg.STEERING_LEFT_PWM,
                                             right_pulse=cfg.STEERING_RIGHT_PWM)
 
+            # NOTE Waveshare > throttle_controller = PCA9685(cfg.THROTTLE_CHANNEL, cfg.PCA9685_I2C_ADDR, frequency=1600, busnum=cfg.PCA9685_I2C_BUSNUM)
             throttle_controller = PCA9685(cfg.THROTTLE_CHANNEL, cfg.PCA9685_I2C_ADDR, busnum=cfg.PCA9685_I2C_BUSNUM)
             throttle = PWMThrottle(controller=throttle_controller,
                                             max_pulse=cfg.THROTTLE_FORWARD_PWM,
