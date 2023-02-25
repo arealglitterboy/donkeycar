@@ -332,7 +332,7 @@ class PWMThrottle:
     MIN_THROTTLE = -1
     MAX_THROTTLE = 1
 
-    def __init__(self, controller, max_pulse, min_pulse, zero_pulse):
+    def __init__(self, controller, max_pulse, min_pulse, zero_pulse): # NOTE Waveshare > def __init__(self, control=None, max_pulse=4095, min_pulse=-4095, zero_pulse=0):
 
         if controller is None:
             raise ValueError("PWMThrottle requires a set_pulse controller to be passed")
@@ -348,10 +348,12 @@ class PWMThrottle:
 
         # send zero pulse to calibrate ESC
         logger.info("Init ESC")
+        # NOTE Waveshare remove START
         self.controller.set_pulse(self.max_pulse)
         time.sleep(0.01)
         self.controller.set_pulse(self.min_pulse)
         time.sleep(0.01)
+        # NOTE Waveshare remove END
         self.controller.set_pulse(self.zero_pulse)
         time.sleep(1)
         self.running = True
